@@ -298,6 +298,21 @@
       display: block;
     }
     
+    .channel-info {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 10px;
+      border-radius: 10px;
+      margin-bottom: 10px;
+      text-align: center;
+      color: white;
+      font-size: 14px;
+      display: none;
+    }
+    
+    .channel-info.active {
+      display: block;
+    }
+    
     .status {
       text-align: center;
       color: white;
@@ -343,6 +358,22 @@
     }
     
     .error.active {
+      display: block;
+    }
+    
+    .warning {
+      background: rgba(255, 165, 0, 0.2);
+      color: #ffd700;
+      padding: 10px;
+      border-radius: 10px;
+      text-align: center;
+      margin: 10px 0;
+      display: none;
+      border: 1px solid rgba(255, 165, 0, 0.3);
+      font-size: 14px;
+    }
+    
+    .warning.active {
       display: block;
     }
     
@@ -394,16 +425,25 @@
       <button class="btn btn-primary" onclick="loadChannel()">
         📺 読み込み
       </button>
+      <button class="btn btn-secondary" onclick="checkChannel()" id="checkBtn">
+        🔍 確認
+      </button>
       <button class="btn btn-secondary" onclick="clearChannel()" style="display: none;" id="clearBtn">
         🗑️ クリア
       </button>
     </div>
+    
+    <div class="warning" id="warning"></div>
     
     <div class="loading" id="loading">
       <div class="spinner"></div>
     </div>
     
     <div class="error" id="error"></div>
+    
+    <div class="channel-info" id="channelInfo">
+      <div id="channelDetails"></div>
+    </div>
     
     <div class="content" id="content">
       <div class="player-container" id="playerContainer">
@@ -450,22 +490,125 @@
       }
     });
     
-    function loadChannel() {
-      const channel = document.getElementById("channel").value.trim().toLowerCase();
-      if (!channel) {
+    // チャンネル名を正規化する関数
+    function normalizeChannelName(channel) {
+      // URLから抽出する場合
+      if (channel.includes('twitch.tv/')) {
+        const urlMatch = channel.match(/twitch\.tv\/([a-zA-Z0-9_]+)/);
+        if (urlMatch) {
+          channel = urlMatch[1];
+        }
+      }
+      
+      // 先頭の@や#を削除
+      channel = channel.replace(/^[@#]+/, '');
+      
+      // 小文字に変換
+      channel = channel.toLowerCase();
+      
+      return channel.trim();
+    }
+    
+    // チャンネルの存在確認
+    async function checkChannel() {
+      const inputChannel = document.getElementById("channel").value.trim();
+      if (!inputChannel) {
         showError("チャンネルIDを入力してください！");
         return;
       }
       
-      // チャンネル名のバリデーション
-      if (!/^[a-zA-Z0-9_]{4,25}$/.test(channel)) {
-        showError("有効なTwitchチャンネル名を入力してください（4-25文字、英数字とアンダースコアのみ）");
+      const channel = normalizeChannelName(inputChannel);
+      showLoading();
+      hideError();
+      hideWarning();
+      
+      try {
+        // Twitch APIの代わりにiframeの読み込みテストを使用
+        await testChannelExists(channel);
+        
+        hideLoading();
+        document.getElementById('channelInfo').classList.add('active');
+        document.getElementById('channelDetails').innerHTML = `
+          <strong>✅ チャンネルが見つかりました!</strong><br>
+          チャンネル名: <strong>${channel}</strong><br>
+          <small>このチャンネルは有効です。読み込みボタンを押して配信を開始してください。</small>
+        `;
+        
+        // 正規化されたチャンネル名を入力欄に設定
+        if (inputChannel !== channel) {
+          document.getElementById("channel").value = channel;
+          showWarning(`チャンネル名を "${channel}" に修正しました`);
+        }
+        
+      } catch (error) {
+        hideLoading();
+        document.getElementById('channelInfo').classList.remove('active');
+        showError(`チャンネル "${channel}" が見つかりません。チャンネル名を確認してください。`);
+      }
+    }
+    
+    // チャンネル存在確認のテスト
+    function testChannelExists(channel) {
+      return new Promise((resolve, reject) => {
+        // 一時的なiframeを作成してテスト
+        const testFrame = document.createElement('iframe');
+        testFrame.style.display = 'none';
+        testFrame.style.width = '1px';
+        testFrame.style.height = '1px';
+        
+        const timeout = setTimeout(() => {
+          document.body.removeChild(testFrame);
+          reject(new Error('チャンネルが見つかりません'));
+        }, 5000);
+        
+        testFrame.onload = () => {
+          clearTimeout(timeout);
+          document.body.removeChild(testFrame);
+          resolve();
+        };
+        
+        testFrame.onerror = () => {
+          clearTimeout(timeout);
+          document.body.removeChild(testFrame);
+          reject(new Error('チャンネルが見つかりません'));
+        };
+        
+        const parent = window.location.hostname || "localhost";
+        testFrame.src = `https://player.twitch.tv/?channel=${channel}&parent=${parent}&autoplay=false&muted=true&controls=false`;
+        document.body.appendChild(testFrame);
+      });
+    }
+    
+    function loadChannel() {
+      const inputChannel = document.getElementById("channel").value.trim();
+      if (!inputChannel) {
+        showError("チャンネルIDを入力してください！");
+        return;
+      }
+      
+      const channel = normalizeChannelName(inputChannel);
+      
+      // チャンネル名のバリデーション（より厳密に）
+      if (!/^[a-zA-Z0-9_]{3,25}$/.test(channel)) {
+        showError("有効なTwitchチャンネル名を入力してください（3-25文字、英数字とアンダースコアのみ、日本語不可）");
+        return;
+      }
+      
+      // よくある間違いをチェック
+      if (channel.includes('youtube') || channel.includes('nico') || channel.includes('.com')) {
+        showError("TwitchのチャンネルIDのみ対応しています。URLではなくチャンネル名を入力してください。");
         return;
       }
       
       currentChannel = channel;
       showLoading();
       hideError();
+      hideWarning();
+      
+      // 正規化されたチャンネル名を入力欄に設定
+      if (inputChannel !== channel) {
+        document.getElementById("channel").value = channel;
+      }
       
       // 前のチャット接続を切断
       if (tmiClient) {
@@ -474,16 +617,16 @@
       
       // 少し遅延を入れてローディング効果を見せる
       setTimeout(() => {
-        const parent = window.location.hostname || "localhost";
+        const parent = encodeURIComponent(window.location.hostname) || "localhost";
         
         try {
-          // プレイヤーの読み込み
+          // プレイヤーの読み込み（より確実なパラメータ）
           document.getElementById("player").src = 
-            `https://player.twitch.tv/?channel=${channel}&parent=${parent}&autoplay=false&muted=false`;
+            `https://player.twitch.tv/?channel=${encodeURIComponent(channel)}&parent=${parent}&autoplay=false&muted=false`;
           
-          // チャットの読み込み
+          // チャットの読み込み（より確実なパラメータ）
           document.getElementById("chat").src = 
-            `https://www.twitch.tv/embed/${channel}/chat?parent=${parent}&darkpopout`;
+            `https://www.twitch.tv/embed/${encodeURIComponent(channel)}/chat?parent=${parent}&darkpopout`;
           
           // チャット接続を開始
           connectToChat(channel);
@@ -491,6 +634,7 @@
           showContent();
           hideLoading();
           document.getElementById('chatStats').classList.add('active');
+          document.getElementById('channelInfo').classList.remove('active');
           updateStatus(`${channel} の配信を表示中`);
           document.getElementById('clearBtn').style.display = 'block';
           
@@ -505,52 +649,77 @@
     function connectToChat(channel) {
       updateConnectionStatus('connecting', 'チャットに接続中...');
       
-      // tmi.jsクライアントを作成（匿名接続）
-      tmiClient = new tmi.Client({
-        connection: {
-          secure: true,
-          reconnect: true
-        },
-        channels: [channel]
-      });
-      
-      // イベントリスナーを設定
-      tmiClient.on('connected', (addr, port) => {
-        updateConnectionStatus('connected', 'チャット接続完了');
-        console.log(`チャットに接続しました: ${addr}:${port}`);
-      });
-      
-      tmiClient.on('disconnected', (reason) => {
-        updateConnectionStatus('disconnected', '接続切断');
-        console.log('チャット接続が切断されました:', reason);
-      });
-      
-      tmiClient.on('message', (channel, tags, message, self) => {
-        messageCount++;
-        updateMessageCount();
+      try {
+        // tmi.jsクライアントを作成（匿名接続、より安定した設定）
+        tmiClient = new tmi.Client({
+          connection: {
+            secure: true,
+            reconnect: true,
+            maxReconnectAttempts: 5,
+            maxReconnectInterval: 10000,
+            reconnectDecay: 1.5
+          },
+          channels: [channel.toLowerCase()]
+        });
         
-        // 弾幕が有効な場合のみ表示
-        if (danmakuEnabled) {
-          createDanmakuComment(message, tags.username, tags.color);
-        }
-      });
-      
-      tmiClient.on('reconnect', () => {
-        updateConnectionStatus('connecting', '再接続中...');
-        console.log('チャットを再接続中...');
-      });
-      
-      // 接続開始
-      tmiClient.connect().catch(error => {
-        updateConnectionStatus('disconnected', '接続エラー');
-        console.error('チャット接続エラー:', error);
-        showError('チャットへの接続に失敗しました。');
-      });
+        // エラーハンドリングを改善
+        tmiClient.on('connected', (addr, port) => {
+          updateConnectionStatus('connected', 'チャット接続完了');
+          console.log(`チャットに接続しました: ${addr}:${port}`);
+          updateStatus(`${channel} のチャットに接続しました`);
+        });
+        
+        tmiClient.on('disconnected', (reason) => {
+          updateConnectionStatus('disconnected', '接続切断');
+          console.log('チャット接続が切断されました:', reason);
+          updateStatus('チャット接続が切断されました');
+        });
+        
+        tmiClient.on('message', (channel, tags, message, self) => {
+          if (self) return; // 自分のメッセージは無視
+          
+          messageCount++;
+          updateMessageCount();
+          
+          // 弾幕が有効な場合のみ表示
+          if (danmakuEnabled) {
+            createDanmakuComment(message, tags.username || tags['display-name'] || 'Anonymous', tags.color);
+          }
+        });
+        
+        tmiClient.on('reconnect', () => {
+          updateConnectionStatus('connecting', '再接続中...');
+          console.log('チャットを再接続中...');
+        });
+        
+        // 接続エラーのハンドリング
+        tmiClient.on('error', (error) => {
+          updateConnectionStatus('disconnected', '接続エラー');
+          console.error('チャット接続エラー:', error);
+          showError(`チャットへの接続でエラーが発生しました: ${error.message}`);
+        });
+        
+        // 接続開始
+        tmiClient.connect().catch(error => {
+          updateConnectionStatus('disconnected', '接続失敗');
+          console.error('チャット接続失敗:', error);
+          showError(`チャットへの接続に失敗しました: ${error.message || 'チャンネルが存在しないか、現在利用できません'}`);
+        });
+        
+      } catch (error) {
+        updateConnectionStatus('disconnected', '初期化エラー');
+        console.error('チャットクライアントの初期化エラー:', error);
+        showError('チャット機能の初期化に失敗しました');
+      }
     }
     
     function disconnectChat() {
       if (tmiClient) {
-        tmiClient.disconnect();
+        try {
+          tmiClient.disconnect();
+        } catch (error) {
+          console.log('チャット切断時のエラー:', error);
+        }
         tmiClient = null;
         updateConnectionStatus('disconnected', '未接続');
       }
@@ -578,6 +747,8 @@
       document.getElementById("chat").src = '';
       hideContent();
       hideError();
+      hideWarning();
+      document.getElementById('channelInfo').classList.remove('active');
       updateStatus('');
       document.getElementById('clearBtn').style.display = 'none';
       document.getElementById('chatStats').classList.remove('active');
@@ -668,7 +839,8 @@
       
       // メッセージの前処理（長すぎる場合は切り詰め）
       const displayMessage = message.length > 50 ? message.substring(0, 47) + '...' : message;
-      comment.textContent = `${username}: ${displayMessage}`;
+      const displayName = username || 'Anonymous';
+      comment.textContent = `${displayName}: ${displayMessage}`;
       
       // ランダムな縦位置を設定
       comment.style.top = Math.random() * 70 + 10 + '%';
@@ -729,6 +901,21 @@
       document.getElementById('error').classList.remove('active');
     }
     
+    function showWarning(message) {
+      const warningDiv = document.getElementById('warning');
+      warningDiv.textContent = message;
+      warningDiv.classList.add('active');
+      
+      // 3秒後に自動で非表示
+      setTimeout(() => {
+        hideWarning();
+      }, 3000);
+    }
+    
+    function hideWarning() {
+      document.getElementById('warning').classList.remove('active');
+    }
+    
     function updateStatus(message) {
       document.getElementById('status').textContent = message;
     }
@@ -739,7 +926,8 @@
       const urlParams = new URLSearchParams(window.location.search);
       const channelParam = urlParams.get('channel');
       if (channelParam) {
-        document.getElementById('channel').value = channelParam;
+        const normalizedChannel = normalizeChannelName(channelParam);
+        document.getElementById('channel').value = normalizedChannel;
         loadChannel();
       }
       
@@ -747,6 +935,35 @@
       updateMessageCount();
       updateActiveDanmakuCount();
       updateConnectionStatus('disconnected', '未接続');
+      
+      // 入力チェック機能
+      const channelInput = document.getElementById('channel');
+      let inputTimeout;
+      
+      channelInput.addEventListener('input', function() {
+        clearTimeout(inputTimeout);
+        hideError();
+        hideWarning();
+        document.getElementById('channelInfo').classList.remove('active');
+        
+        const value = this.value.trim();
+        if (value) {
+          // 入力停止から500ms後にリアルタイムバリデーション
+          inputTimeout = setTimeout(() => {
+            const normalized = normalizeChannelName(value);
+            if (normalized !== value && normalized) {
+              showWarning(`入力値を "${normalized}" に正規化します`);
+            }
+            
+            // 基本的なバリデーション
+            if (!/^[a-zA-Z0-9_@#\/:.]*$/.test(value)) {
+              showError('無効な文字が含まれています');
+            } else if (normalized && !/^[a-zA-Z0-9_]{3,25}$/.test(normalized)) {
+              showError('チャンネル名は3-25文字の英数字とアンダースコアのみ有効です');
+            }
+          }, 500);
+        }
+      });
     });
     
     // フルスクリーン終了時の処理
@@ -759,8 +976,21 @@
     // ページ離脱時にチャット接続を切断
     window.addEventListener('beforeunload', function() {
       if (tmiClient) {
-        tmiClient.disconnect();
+        try {
+          tmiClient.disconnect();
+        } catch (error) {
+          console.log('ページ離脱時のチャット切断エラー:', error);
+        }
       }
+    });
+    
+    // iframe読み込みエラーのハンドリング
+    document.getElementById('player').addEventListener('error', function() {
+      showError('プレイヤーの読み込みに失敗しました。チャンネルが存在しない可能性があります。');
+    });
+    
+    document.getElementById('chat').addEventListener('error', function() {
+      showWarning('チャットの読み込みに問題が発生しました。');
     });
   </script>
 </body>
