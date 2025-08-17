@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Twitch 弾幕Webアプリ</title>
+<style>
+  body { margin:0; background:black; font-family:sans-serif; }
+  #controls { padding:10px; background:#111; color:white; display:flex; gap:10px; flex-wrap:wrap; }
+  #videoContainer { position:relative; width:720px; max-width:100%; margin:10px auto; }
+  #chatFrame { position:relative; width:350px; max-width:100%; margin:10px auto; }
+  #danmaku {
+    position:fixed; top:0; left:0; width:100%; height:100%;
+    pointer-events:none; z-index:9999;
+  }
+  .danmaku-item {
+    position:absolute; white-space:nowrap;
+    color:white; font-size:20px; text-shadow:0 0 5px black;
+  }
+</style>
+</head>
+<body>
+
+<div id="controls">
+  <button id="loadFollowsBtn">フォロー中配信者取得</button>
+  <select id="followList" style="min-width:150px;"></select>
+  <button id="loadStreamBtn">動画を表示</button>
+</div>
+
+<div id="videoContainer"></div>
+<iframe id="chatFrame"></iframe>
+<div id="danmaku"></div>
+
+<script>
+const CLIENT_ID = 'gp762nuuoqcoxypju8c569th9wz7q5';
+const ACCESS_TOKEN = 'dhhuflzw1a3t7ags4guuq9yzywwjbg';
+
+// フォロー中配信者取得
+async function getFollowedStreams(){
+  const userRes = await fetch('https://api.twitch.tv/helix/users', {
+    headers: { 'Client-ID': CLIENT_ID, 'Authorization': `Bearer ${ACCESS_TOKEN}` }
+  });
+  const userData = await userRes.json();
+  const userId = userData.data[0].id;
+
+  const followsRes = await fetch(`https://api.twitch.tv/helix/users/follows?from_id=${userId}`, {
+    headers: { 'Client-ID': CLIENT_ID, 'Authorization': `Bearer ${ACCESS_TOKEN}` }
+  });
+  const followsData = await followsRes.json();
+  return followsData.data.map(f => f.to_name);
+}
+
+// 弾幕追加関数
+function addDanmaku(text){
+  const d = document.createElement('div');
+  d.className = 'danmaku-item';
+  d.textContent = text;
+  d.style.top = Math.random()*80 + '%';
+  d.style.left = '100%';
+  document.getElementById('danmaku').appendChild(d);
+
+  const start = performance.now();
+  const duration = 10000;
+  function animate(time){
+    const t = (time - start)/duration;
+    if(t<1){ d.style.left = (100-100*t) + '%'; requestAnimationFrame(animate); }
+    else d.remove();
+  }
+  requestAnimationFrame(animate);
+}
+
+// ボタンイベント
+document.getElementById('loadFollowsBtn').addEventListener('click', async ()=>{
+  const list = document.getElementById('followList');
+  list.innerHTML = '';
+  const follows = await getFollowedStreams();
+  follows.forEach(name=>{
+    const option = document.createElement('option');
+    option.value = name; option.textContent = name;
+    list.appendChild(option);
+  });
+  alert('フォロー中配信者を取得しました');
+});
+
+document.getElementById('loadStreamBtn').addEventListener('click', ()=>{
+  const channel = document.getElementById('followList').value;
+  if(!channel) return;
+
+  // 動画表示
+  document.getElementById('videoContainer').innerHTML =
+    `<iframe src="https://player.twitch.tv/?channel=${channel}&parent=localhost"
+      height="480" width="720" allowfullscreen></iframe>`;
+
+  // チャット表示
+  document.getElementById('chatFrame').innerHTML =
+    `<iframe src="https://www.twitch.tv/embed/${channel}/chat?parent=localhost"
+      height="480" width="350" frameborder="0"></iframe>`;
+
+  // 弾幕テスト（後でリアルチャットに置き換え可能）
+  setInterval(()=>{ addDanmaku(`テスト: ${channel}`); }, 2000);
+});
+</script>
+
+</body>
+</html>
