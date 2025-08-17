@@ -1,104 +1,99 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Twitch 弾幕Webアプリ</title>
-<style>
-  body { margin:0; background:black; font-family:sans-serif; }
-  #controls { padding:10px; background:#111; color:white; display:flex; gap:10px; flex-wrap:wrap; }
-  #videoContainer { position:relative; width:720px; max-width:100%; margin:10px auto; }
-  #chatFrame { position:relative; width:350px; max-width:100%; margin:10px auto; }
-  #danmaku {
-    position:fixed; top:0; left:0; width:100%; height:100%;
-    pointer-events:none; z-index:9999;
-  }
-  .danmaku-item {
-    position:absolute; white-space:nowrap;
-    color:white; font-size:20px; text-shadow:0 0 5px black;
-  }
-</style>
+  <meta charset="UTF-8">
+  <title>Twitch コメントビューア</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; display: flex; height: 100vh; }
+    #left { flex: 2; display: flex; flex-direction: column; }
+    #video { flex: 1; }
+    #right { flex: 1; display: flex; flex-direction: column; border-left: 2px solid #ccc; }
+    #controls { padding: 8px; border-bottom: 1px solid #ccc; }
+    #scrollChat { flex: 1; overflow-y: auto; background: #111; color: #fff; padding: 5px; }
+    .msg { margin: 2px 0; }
+    #danmakuOverlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    .danmaku {
+      position: absolute;
+      white-space: nowrap;
+      font-size: 18px;
+      color: white;
+      text-shadow: 1px 1px 2px black;
+      animation: move 8s linear forwards;
+    }
+    @keyframes move {
+      from { transform: translateX(100%); }
+      to { transform: translateX(-100%); }
+    }
+  </style>
 </head>
 <body>
+  <div id="left">
+    <div id="video">
+      <iframe id="twitchPlayer" src="" height="100%" width="100%" frameborder="0" allowfullscreen></iframe>
+      <div id="danmakuOverlay"></div>
+    </div>
+  </div>
+  <div id="right">
+    <div id="controls">
+      <input id="streamUrl" type="text" placeholder="Twitch配信URLを入力" style="width:80%">
+      <button onclick="loadStream()">読み込み</button>
+    </div>
+    <div id="scrollChat"></div>
+  </div>
 
-<div id="controls">
-  <button id="loadFollowsBtn">フォロー中配信者取得</button>
-  <select id="followList" style="min-width:150px;"></select>
-  <button id="loadStreamBtn">動画を表示</button>
-</div>
+  <script src="https://unpkg.com/tmi.js@1.8.5"></script>
+  <script>
+    const CLIENT_ID = "gp762nuuoqcoxypju8c569th9wz7q5";
+    const ACCESS_TOKEN = "dhhuflzw1a3t7ags4guuq9yzywwjbg";
 
-<div id="videoContainer"></div>
-<iframe id="chatFrame"></iframe>
-<div id="danmaku"></div>
+    let client;
+    const scrollChat = document.getElementById("scrollChat");
+    const danmakuOverlay = document.getElementById("danmakuOverlay");
 
-<script>
-const CLIENT_ID = 'gp762nuuoqcoxypju8c569th9wz7q5';
-const ACCESS_TOKEN = 'dhhuflzw1a3t7ags4guuq9yzywwjbg';
+    function loadStream(){
+      const url = document.getElementById("streamUrl").value.trim();
+      const match = url.match(/twitch\.tv\/([a-zA-Z0-9_]+)/);
+      if(!match){ alert("正しいTwitchリンクを入力してください"); return; }
+      const channel = match[1];
 
-// フォロー中配信者取得
-async function getFollowedStreams(){
-  const userRes = await fetch('https://api.twitch.tv/helix/users', {
-    headers: { 'Client-ID': CLIENT_ID, 'Authorization': `Bearer ${ACCESS_TOKEN}` }
-  });
-  const userData = await userRes.json();
-  const userId = userData.data[0].id;
+      // 動画埋め込み
+      document.getElementById("twitchPlayer").src =
+        `https://player.twitch.tv/?channel=${channel}&parent=${location.hostname}`;
 
-  const followsRes = await fetch(`https://api.twitch.tv/helix/users/follows?from_id=${userId}`, {
-    headers: { 'Client-ID': CLIENT_ID, 'Authorization': `Bearer ${ACCESS_TOKEN}` }
-  });
-  const followsData = await followsRes.json();
-  return followsData.data.map(f => f.to_name);
-}
+      // 既存接続終了
+      if(client) client.disconnect();
 
-// 弾幕追加関数
-function addDanmaku(text){
-  const d = document.createElement('div');
-  d.className = 'danmaku-item';
-  d.textContent = text;
-  d.style.top = Math.random()*80 + '%';
-  d.style.left = '100%';
-  document.getElementById('danmaku').appendChild(d);
+      // tmi.js でチャット取得
+      client = new tmi.Client({
+        channels: [channel]
+      });
 
-  const start = performance.now();
-  const duration = 10000;
-  function animate(time){
-    const t = (time - start)/duration;
-    if(t<1){ d.style.left = (100-100*t) + '%'; requestAnimationFrame(animate); }
-    else d.remove();
-  }
-  requestAnimationFrame(animate);
-}
+      client.connect();
 
-// ボタンイベント
-document.getElementById('loadFollowsBtn').addEventListener('click', async ()=>{
-  const list = document.getElementById('followList');
-  list.innerHTML = '';
-  const follows = await getFollowedStreams();
-  follows.forEach(name=>{
-    const option = document.createElement('option');
-    option.value = name; option.textContent = name;
-    list.appendChild(option);
-  });
-  alert('フォロー中配信者を取得しました');
-});
+      client.on("message", (chan, tags, message, self) => {
+        if(self) return;
 
-document.getElementById('loadStreamBtn').addEventListener('click', ()=>{
-  const channel = document.getElementById('followList').value;
-  if(!channel) return;
+        // スクロール型チャット
+        const div = document.createElement("div");
+        div.className = "msg";
+        div.textContent = `${tags["display-name"]}: ${message}`;
+        scrollChat.appendChild(div);
+        scrollChat.scrollTop = scrollChat.scrollHeight;
 
-  // 動画表示
-  document.getElementById('videoContainer').innerHTML =
-    `<iframe src="https://player.twitch.tv/?channel=${channel}&parent=localhost"
-      height="480" width="720" allowfullscreen></iframe>`;
-
-  // チャット表示
-  document.getElementById('chatFrame').innerHTML =
-    `<iframe src="https://www.twitch.tv/embed/${channel}/chat?parent=localhost"
-      height="480" width="350" frameborder="0"></iframe>`;
-
-  // 弾幕テスト（後でリアルチャットに置き換え可能）
-  setInterval(()=>{ addDanmaku(`テスト: ${channel}`); }, 2000);
-});
-</script>
-
+        // 弾幕型チャット
+        const span = document.createElement("div");
+        span.className = "danmaku";
+        span.textContent = message;
+        span.style.top = `${Math.random()*80}%`;
+        danmakuOverlay.appendChild(span);
+        setTimeout(()=>span.remove(), 8000);
+      });
+    }
+  </script>
 </body>
 </html>
