@@ -13,19 +13,21 @@
 
   <script>
     function loadChannel() {
-      const channel = document.getElementById("channel").value;
+      const channel = document.getElementById("channel").value.trim();
       if (!channel) return alert("チャンネルIDを入力してください！");
+
+      const parent = "karasu-3.github.io";
 
       document.getElementById("player").innerHTML = `
         <iframe
-          src="https://player.twitch.tv/?channel=${channel}&parent=karasu-3.github.io"
+          src="https://player.twitch.tv/?channel=${channel}&parent=${parent}"
           width="600" height="400" allowfullscreen>
         </iframe>
       `;
 
       document.getElementById("chat").innerHTML = `
         <iframe
-          src="https://www.twitch.tv/embed/${channel}/chat?parent=karasu-3.github.io"
+          src="https://www.twitch.tv/embed/${channel}/chat?parent=${parent}"
           width="350" height="400">
         </iframe>
       `;
