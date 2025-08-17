@@ -9,7 +9,12 @@
       margin: 0;
       padding: 0;
       box-sizing: border-box;
-    }
+    // Enterキーでの読み込み対応
+    document.getElementById('channel').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        loadChannel();
+      }
+    });
     
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -180,18 +185,42 @@
       box-shadow: none !important;
       border: none !important;
       padding: 0 !important;
+      margin: 0 !important;
+      max-width: none !important;
+      width: 100% !important;
+      height: 100vh !important;
     }
     
     .minimal-mode h1,
     .minimal-mode .input-section,
     .minimal-mode .loading,
     .minimal-mode .error,
-    .minimal-mode .status {
+    .minimal-mode .status,
+    .minimal-mode .warning,
+    .minimal-mode .channel-info,
+    .minimal-mode .chat-stats {
       display: none !important;
     }
     
     .minimal-mode .content {
-      margin-top: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      gap: 0 !important;
+      height: 100vh !important;
+      width: 100% !important;
+    }
+    
+    .minimal-mode .player-container,
+    .minimal-mode .chat-container {
+      margin: 0 !important;
+      border-radius: 0 !important;
+      height: 100vh !important;
+    }
+    
+    .minimal-mode .player-container iframe,
+    .minimal-mode .chat-container iframe {
+      border-radius: 0 !important;
+      height: 100vh !important;
     }
     
     .minimal-mode .controls {
@@ -199,21 +228,92 @@
       top: 10px;
       right: 10px;
       z-index: 1000;
-      background: rgba(0, 0, 0, 0.7);
-      padding: 10px;
-      border-radius: 10px;
+      background: rgba(0, 0, 0, 0.8);
+      padding: 8px;
+      border-radius: 8px;
       backdrop-filter: blur(10px);
     }
     
     .minimal-mode .btn {
-      margin: 0 5px;
-      padding: 8px 12px;
-      font-size: 12px;
+      margin: 0 2px;
+      padding: 6px 10px;
+      font-size: 11px;
     }
     
     .minimal-mode body {
       background: #000 !important;
       padding: 0 !important;
+      margin: 0 !important;
+      overflow: hidden !important;
+    }
+    
+    /* フルスクリーン時のスタイル */
+    .content:fullscreen,
+    .content:-webkit-full-screen,
+    .content:-moz-full-screen,
+    .content:-ms-fullscreen {
+      background: #000 !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      gap: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+    }
+    
+    .content:fullscreen .player-container,
+    .content:-webkit-full-screen .player-container,
+    .content:-moz-full-screen .player-container,
+    .content:-ms-fullscreen .player-container {
+      border-radius: 0 !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      width: 100% !important;
+      height: 100% !important;
+      flex: none !important;
+    }
+    
+    .content:fullscreen .chat-container,
+    .content:-webkit-full-screen .chat-container,
+    .content:-moz-full-screen .chat-container,
+    .content:-ms-fullscreen .chat-container {
+      border-radius: 0 !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      width: 100% !important;
+      height: 100% !important;
+      flex: none !important;
+    }
+    
+    .content:fullscreen iframe,
+    .content:-webkit-full-screen iframe,
+    .content:-moz-full-screen iframe,
+    .content:-ms-fullscreen iframe {
+      border-radius: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+    }
+    
+    /* フルスクリーン時のチャット非表示モード */
+    .content:fullscreen.chat-hidden,
+    .content:-webkit-full-screen.chat-hidden,
+    .content:-moz-full-screen.chat-hidden,
+    .content:-ms-fullscreen.chat-hidden {
+      display: block !important;
+    }
+    
+    .content:fullscreen.chat-hidden .chat-container,
+    .content:-webkit-full-screen.chat-hidden .chat-container,
+    .content:-moz-full-screen.chat-hidden .chat-container,
+    .content:-ms-fullscreen.chat-hidden .chat-container {
+      display: none !important;
+    }
+    
+    .content:fullscreen.chat-hidden .player-container,
+    .content:-webkit-full-screen.chat-hidden .player-container,
+    .content:-moz-full-screen.chat-hidden .player-container,
+    .content:-ms-fullscreen.chat-hidden .player-container {
+      width: 100% !important;
+      height: 100% !important;
     }
     
     .chat-hidden .chat-container {
@@ -471,9 +571,6 @@
     <div class="status" id="status"></div>
   </div>
 
-  <!-- tmi.js CDN -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/tmi.js/1.8.5/tmi.min.js"></script>
-  
   <script>
     let currentChannel = '';
     let danmakuEnabled = false;
@@ -482,8 +579,76 @@
     let tmiClient = null;
     let messageCount = 0;
     let activeDanmakuCount = 0;
+    let tmiLoaded = false;
     
-    // Enterキーでの読み込み対応
+    // tmi.jsライブラリの読み込み確認とフォールバック
+    function initTmiLibrary() {
+      return new Promise((resolve, reject) => {
+        // tmi.jsが既に読み込まれているかチェック
+        if (typeof tmi !== 'undefined' && tmi.Client) {
+          tmiLoaded = true;
+          console.log('tmi.js already loaded');
+          resolve();
+          return;
+        }
+        
+        // 動的にtmi.jsを読み込み
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/tmi.js/1.8.5/tmi.min.js';
+        script.async = true;
+        
+        script.onload = () => {
+          if (typeof tmi !== 'undefined' && tmi.Client) {
+            tmiLoaded = true;
+            console.log('tmi.js loaded successfully');
+            resolve();
+          } else {
+            console.error('tmi.js loaded but tmi object not found');
+            reject(new Error('tmi.js library initialization failed'));
+          }
+        };
+        
+        script.onerror = () => {
+          console.error('Failed to load tmi.js from CDN');
+          // 代替CDNを試行
+          tryAlternativeCDN().then(resolve).catch(reject);
+        };
+        
+        document.head.appendChild(script);
+        
+        // タイムアウト設定
+        setTimeout(() => {
+          if (!tmiLoaded) {
+            reject(new Error('tmi.js loading timeout'));
+          }
+        }, 10000);
+      });
+    }
+    
+    // 代替CDNからの読み込み
+    function tryAlternativeCDN() {
+      return new Promise((resolve, reject) => {
+        const altScript = document.createElement('script');
+        altScript.src = 'https://unpkg.com/tmi.js@1.8.5/dist/tmi.min.js';
+        altScript.async = true;
+        
+        altScript.onload = () => {
+          if (typeof tmi !== 'undefined' && tmi.Client) {
+            tmiLoaded = true;
+            console.log('tmi.js loaded from alternative CDN');
+            resolve();
+          } else {
+            reject(new Error('Alternative CDN also failed'));
+          }
+        };
+        
+        altScript.onerror = () => {
+          reject(new Error('All CDN sources failed'));
+        };
+        
+        document.head.appendChild(altScript);
+      });
+    }
     document.getElementById('channel').addEventListener('keypress', function(e) {
       if (e.key === 'Enter') {
         loadChannel();
@@ -647,25 +812,53 @@
     }
     
     function connectToChat(channel) {
+      updateConnectionStatus('connecting', 'チャットライブラリを初期化中...');
+      
+      // tmi.jsライブラリの初期化を確認
+      if (!tmiLoaded) {
+        initTmiLibrary()
+          .then(() => {
+            actuallyConnectToChat(channel);
+          })
+          .catch(error => {
+            console.error('tmi.js initialization failed:', error);
+            updateConnectionStatus('disconnected', '初期化失敗');
+            showWarning('チャット機能は利用できませんが、配信視聴は可能です。ページを再読み込みしてもう一度お試しください。');
+          });
+      } else {
+        actuallyConnectToChat(channel);
+      }
+    }
+    
+    function actuallyConnectToChat(channel) {
       updateConnectionStatus('connecting', 'チャットに接続中...');
       
       try {
+        // tmi.jsが利用可能か最終確認
+        if (typeof tmi === 'undefined' || !tmi.Client) {
+          throw new Error('tmi.js is not available');
+        }
+        
         // tmi.jsクライアントを作成（匿名接続、より安定した設定）
         tmiClient = new tmi.Client({
           connection: {
             secure: true,
             reconnect: true,
-            maxReconnectAttempts: 5,
-            maxReconnectInterval: 10000,
-            reconnectDecay: 1.5
+            maxReconnectAttempts: 3,
+            maxReconnectInterval: 5000,
+            reconnectDecay: 1.2
           },
-          channels: [channel.toLowerCase()]
+          channels: [channel.toLowerCase()],
+          options: {
+            debug: false,
+            messagesLogLevel: 'warn'
+          }
         });
         
         // エラーハンドリングを改善
         tmiClient.on('connected', (addr, port) => {
           updateConnectionStatus('connected', 'チャット接続完了');
-          console.log(`チャットに接続しました: ${addr}:${port}`);
+          console.log(`チャットに接続しました: ${channel}`);
           updateStatus(`${channel} のチャットに接続しました`);
         });
         
@@ -675,15 +868,20 @@
           updateStatus('チャット接続が切断されました');
         });
         
-        tmiClient.on('message', (channel, tags, message, self) => {
+        tmiClient.on('message', (channelName, tags, message, self) => {
           if (self) return; // 自分のメッセージは無視
           
-          messageCount++;
-          updateMessageCount();
-          
-          // 弾幕が有効な場合のみ表示
-          if (danmakuEnabled) {
-            createDanmakuComment(message, tags.username || tags['display-name'] || 'Anonymous', tags.color);
+          try {
+            messageCount++;
+            updateMessageCount();
+            
+            // 弾幕が有効な場合のみ表示
+            if (danmakuEnabled) {
+              const username = tags['display-name'] || tags.username || 'Anonymous';
+              createDanmakuComment(message, username, tags.color);
+            }
+          } catch (error) {
+            console.warn('Message processing error:', error);
           }
         });
         
@@ -696,20 +894,35 @@
         tmiClient.on('error', (error) => {
           updateConnectionStatus('disconnected', '接続エラー');
           console.error('チャット接続エラー:', error);
-          showError(`チャットへの接続でエラーが発生しました: ${error.message}`);
+          
+          // エラーの種類によってメッセージを変更
+          if (error.message && error.message.includes('No response from Twitch')) {
+            showWarning('Twitchサーバーからの応答がありません。しばらく待ってから再試行してください。');
+          } else {
+            showWarning('チャット接続でエラーが発生しました。配信視聴は継続できます。');
+          }
         });
         
         // 接続開始
-        tmiClient.connect().catch(error => {
-          updateConnectionStatus('disconnected', '接続失敗');
-          console.error('チャット接続失敗:', error);
-          showError(`チャットへの接続に失敗しました: ${error.message || 'チャンネルが存在しないか、現在利用できません'}`);
-        });
+        tmiClient.connect()
+          .then(() => {
+            console.log('Chat connection initiated successfully');
+          })
+          .catch(error => {
+            updateConnectionStatus('disconnected', '接続失敗');
+            console.error('チャット接続失敗:', error);
+            
+            if (error.message && error.message.includes('channel')) {
+              showWarning(`チャンネル "${channel}" のチャットに接続できませんでした。チャンネルが存在しないか、現在オフラインの可能性があります。`);
+            } else {
+              showWarning('チャットへの接続に失敗しましたが、配信視聴は可能です。');
+            }
+          });
         
       } catch (error) {
         updateConnectionStatus('disconnected', '初期化エラー');
         console.error('チャットクライアントの初期化エラー:', error);
-        showError('チャット機能の初期化に失敗しました');
+        showWarning('チャット機能を初期化できませんでしたが、配信視聴は可能です。ページを再読み込みしてお試しください。');
       }
     }
     
@@ -787,14 +1000,31 @@
     
     function toggleFullscreen() {
       const content = document.getElementById("content");
-      if (content.requestFullscreen) {
-        content.requestFullscreen();
-      } else if (content.webkitRequestFullscreen) {
-        content.webkitRequestFullscreen();
-      } else if (content.mozRequestFullScreen) {
-        content.mozRequestFullScreen();
-      } else if (content.msRequestFullscreen) {
-        content.msRequestFullscreen();
+      
+      if (!document.fullscreenElement && !document.webkitFullscreenElement && 
+          !document.mozFullScreenElement && !document.msFullscreenElement) {
+        // フルスクリーンに入る
+        if (content.requestFullscreen) {
+          content.requestFullscreen();
+        } else if (content.webkitRequestFullscreen) {
+          content.webkitRequestFullscreen();
+        } else if (content.mozRequestFullScreen) {
+          content.mozRequestFullScreen();
+        } else if (content.msRequestFullscreen) {
+          content.msRequestFullscreen();
+        }
+        updateStatus('フルスクリーンモード');
+      } else {
+        // フルスクリーンを終了
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+          document.webkitExitFullscreen();
+        } else if (document.mozCancelFullScreen) {
+          document.mozCancelFullScreen();
+        } else if (document.msExitFullscreen) {
+          document.msExitFullscreen();
+        }
       }
     }
     
@@ -823,10 +1053,20 @@
       
       if (minimalMode) {
         body.classList.add('minimal-mode');
+        // bodyとhtmlの余白も完全に除去
+        document.documentElement.style.margin = '0';
+        document.documentElement.style.padding = '0';
+        document.documentElement.style.height = '100%';
+        document.documentElement.style.overflow = 'hidden';
         btn.textContent = '📱 通常表示';
         updateStatus('シンプル表示モード');
       } else {
         body.classList.remove('minimal-mode');
+        // 通常の余白に戻す
+        document.documentElement.style.margin = '';
+        document.documentElement.style.padding = '';
+        document.documentElement.style.height = '';
+        document.documentElement.style.overflow = '';
         btn.textContent = '📱 シンプル表示';
         updateStatus('通常表示モード');
       }
@@ -922,13 +1162,27 @@
     
     // ページ読み込み時の処理
     document.addEventListener('DOMContentLoaded', function() {
+      // tmi.jsライブラリの初期化
+      initTmiLibrary()
+        .then(() => {
+          console.log('Chat functionality is ready');
+          updateStatus('チャット機能が利用可能です');
+        })
+        .catch(error => {
+          console.warn('Chat functionality unavailable:', error);
+          showWarning('チャット機能は利用できませんが、配信視聴は可能です。');
+        });
+      
       // URLパラメータから自動読み込み
       const urlParams = new URLSearchParams(window.location.search);
       const channelParam = urlParams.get('channel');
       if (channelParam) {
         const normalizedChannel = normalizeChannelName(channelParam);
         document.getElementById('channel').value = normalizedChannel;
-        loadChannel();
+        // 少し遅延してからロード（ライブラリの初期化を待つ）
+        setTimeout(() => {
+          loadChannel();
+        }, 1000);
       }
       
       // 初期値設定
@@ -968,7 +1222,29 @@
     
     // フルスクリーン終了時の処理
     document.addEventListener('fullscreenchange', function() {
-      if (!document.fullscreenElement) {
+      if (!document.fullscreenElement && !document.webkitFullscreenElement && 
+          !document.mozFullScreenElement && !document.msFullscreenElement) {
+        updateStatus('フルスクリーンを終了しました');
+      }
+    });
+    
+    // Webkit系ブラウザ対応
+    document.addEventListener('webkitfullscreenchange', function() {
+      if (!document.webkitFullscreenElement) {
+        updateStatus('フルスクリーンを終了しました');
+      }
+    });
+    
+    // Firefox対応
+    document.addEventListener('mozfullscreenchange', function() {
+      if (!document.mozFullScreenElement) {
+        updateStatus('フルスクリーンを終了しました');
+      }
+    });
+    
+    // IE/Edge対応
+    document.addEventListener('msfullscreenchange', function() {
+      if (!document.msFullscreenElement) {
         updateStatus('フルスクリーンを終了しました');
       }
     });
@@ -993,5 +1269,8 @@
       showWarning('チャットの読み込みに問題が発生しました。');
     });
   </script>
+
+  <!-- tmi.js CDN (フォールバック用) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tmi.js/1.8.5/tmi.min.js" async></script>
 </body>
 </html>
