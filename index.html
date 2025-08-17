@@ -172,6 +172,57 @@
       display: none !important;
     }
     
+    .minimal-mode .container {
+      background: transparent !important;
+      backdrop-filter: none !important;
+      box-shadow: none !important;
+      border: none !important;
+      padding: 0 !important;
+    }
+    
+    .minimal-mode h1,
+    .minimal-mode .input-section,
+    .minimal-mode .loading,
+    .minimal-mode .error,
+    .minimal-mode .status {
+      display: none !important;
+    }
+    
+    .minimal-mode .content {
+      margin-top: 0 !important;
+    }
+    
+    .minimal-mode .controls {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      z-index: 1000;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 10px;
+      border-radius: 10px;
+      backdrop-filter: blur(10px);
+    }
+    
+    .minimal-mode .btn {
+      margin: 0 5px;
+      padding: 8px 12px;
+      font-size: 12px;
+    }
+    
+    .minimal-mode body {
+      background: #000 !important;
+      padding: 0 !important;
+    }
+    
+    .chat-hidden .chat-container {
+      display: none !important;
+    }
+    
+    .chat-hidden .player-container {
+      flex: 1 !important;
+      width: 100% !important;
+    }
+    
     .danmaku-overlay {
       position: absolute;
       top: 0;
@@ -313,10 +364,10 @@
     </div>
     
     <div class="controls" id="controls">
-      <button class="btn btn-secondary" onclick="toggleVideoOnly()">📺 動画のみ</button>
+      <button class="btn btn-secondary" onclick="toggleDanmaku()">🎭 弾幕ON/OFF</button>
       <button class="btn btn-secondary" onclick="toggleFullscreen()">🔍 フルスクリーン</button>
       <button class="btn btn-secondary" onclick="toggleChat()">💬 チャット切り替え</button>
-      <button class="btn btn-secondary" onclick="toggleDanmaku()">🎭 弾幕ON/OFF</button>
+      <button class="btn btn-secondary" onclick="toggleMinimalMode()">📱 シンプル表示</button>
     </div>
     
     <div class="status" id="status"></div>
@@ -324,10 +375,10 @@
 
   <script>
     let currentChannel = '';
-    let chatVisible = true;
-    let videoOnlyMode = false;
     let danmakuEnabled = false;
-    let danmakuComments = [];
+    let danmakuInterval;
+    let chatVisible = true;
+    let minimalMode = false;
     
     // Enterキーでの読み込み対応
     document.getElementById('channel').addEventListener('keypress', function(e) {
@@ -368,10 +419,10 @@
           
           showContent();
           hideLoading();
-          updateStatus(`${channel} の配信を読み込み中...`);
+          updateStatus(`${channel} の配信を表示中 - 動画・チャット・弾幕を同時表示`);
           document.getElementById('clearBtn').style.display = 'block';
           
-          // 弾幕機能を開始
+          // 弾幕機能を開始（もしONなら）
           if (danmakuEnabled) {
             startDanmaku();
           }
@@ -395,59 +446,69 @@
       stopDanmaku();
     }
     
-    function toggleVideoOnly() {
-      const content = document.getElementById('content');
-      const chatContainer = document.getElementById('chatContainer');
-      const btn = event.target;
-      
-      videoOnlyMode = !videoOnlyMode;
-      
-      if (videoOnlyMode) {
-        content.classList.add('video-only');
-        btn.textContent = '📺 通常表示';
-        updateStatus('動画のみ表示モード');
-      } else {
-        content.classList.remove('video-only');
-        btn.textContent = '📺 動画のみ';
-        updateStatus('通常表示モード');
-      }
-    }
-    
-    function toggleFullscreen() {
-      const iframe = document.getElementById("player");
-      if (iframe.requestFullscreen) {
-        iframe.requestFullscreen();
-      } else if (iframe.webkitRequestFullscreen) {
-        iframe.webkitRequestFullscreen();
-      }
-    }
-    
-    function toggleChat() {
-      const chatContainer = document.getElementById('chatContainer');
-      chatVisible = !chatVisible;
-      
-      if (videoOnlyMode) return; // 動画のみモードでは無効
-      
-      chatContainer.style.display = chatVisible ? 'block' : 'none';
-      
-      const btn = event.target;
-      btn.textContent = chatVisible ? '💬 チャット非表示' : '💬 チャット表示';
-    }
-    
     function toggleDanmaku() {
       danmakuEnabled = !danmakuEnabled;
       const btn = event.target;
       
       if (danmakuEnabled) {
         btn.textContent = '🎭 弾幕OFF';
-        updateStatus('弾幕機能ON');
+        btn.style.background = 'linear-gradient(45deg, #ff6b6b, #ee5a24)';
+        updateStatus('弾幕機能ON - 動画・チャット・弾幕を同時表示');
         if (currentChannel) {
           startDanmaku();
         }
       } else {
-        btn.textContent = '🎭 弾幕ON/OFF';
-        updateStatus('弾幕機能OFF');
+        btn.textContent = '🎭 弾幕ON';
+        btn.style.background = 'linear-gradient(45deg, #4ecdc4, #44a08d)';
+        updateStatus('弾幕機能OFF - 動画・チャットを表示');
         stopDanmaku();
+      }
+    }
+    
+    function toggleFullscreen() {
+      const content = document.getElementById("content");
+      if (content.requestFullscreen) {
+        content.requestFullscreen();
+      } else if (content.webkitRequestFullscreen) {
+        content.webkitRequestFullscreen();
+      } else if (content.mozRequestFullScreen) {
+        content.mozRequestFullScreen();
+      } else if (content.msRequestFullscreen) {
+        content.msRequestFullscreen();
+      }
+    }
+    
+    function toggleChat() {
+      const content = document.getElementById('content');
+      const btn = event.target;
+      
+      chatVisible = !chatVisible;
+      
+      if (chatVisible) {
+        content.classList.remove('chat-hidden');
+        btn.textContent = '💬 チャット非表示';
+        updateStatus('チャット表示中');
+      } else {
+        content.classList.add('chat-hidden');
+        btn.textContent = '💬 チャット表示';
+        updateStatus('チャット非表示中');
+      }
+    }
+    
+    function toggleMinimalMode() {
+      const body = document.body;
+      const btn = event.target;
+      
+      minimalMode = !minimalMode;
+      
+      if (minimalMode) {
+        body.classList.add('minimal-mode');
+        btn.textContent = '📱 通常表示';
+        updateStatus('シンプル表示モード');
+      } else {
+        body.classList.remove('minimal-mode');
+        btn.textContent = '📱 シンプル表示';
+        updateStatus('通常表示モード');
       }
     }
     
@@ -456,20 +517,23 @@
       const dummyComments = [
         'すごい！', 'wwwww', 'おもしろい', 'GG', 'Nice!', 
         'かっこいい', '草', 'すげー', 'やばい', '最高',
-        'プロだ', 'うまい', 'すごすぎ', 'やったー', '神'
+        'プロだ', 'うまい', 'すごすぎ', 'やったー', '神',
+        'やるじゃん', 'かわいい', '88888', 'クリア！', 'ナイス',
+        'ワロタ', 'すご', 'キター', 'おー', 'いいね'
       ];
       
       danmakuInterval = setInterval(() => {
-        if (Math.random() < 0.3) { // 30%の確率でコメント表示
+        if (Math.random() < 0.4) { // 40%の確率でコメント表示
           const comment = dummyComments[Math.floor(Math.random() * dummyComments.length)];
           createDanmakuComment(comment);
         }
-      }, 2000);
+      }, 1500);
     }
     
     function stopDanmaku() {
       if (danmakuInterval) {
         clearInterval(danmakuInterval);
+        danmakuInterval = null;
       }
       document.getElementById('danmakuOverlay').innerHTML = '';
     }
@@ -479,8 +543,9 @@
       const comment = document.createElement('div');
       comment.className = 'danmaku-comment';
       comment.textContent = text;
-      comment.style.top = Math.random() * 70 + '%';
+      comment.style.top = Math.random() * 70 + 10 + '%';
       comment.style.color = `hsl(${Math.random() * 360}, 70%, 80%)`;
+      comment.style.fontSize = (14 + Math.random() * 8) + 'px';
       
       overlay.appendChild(comment);
       
@@ -532,6 +597,13 @@
       if (channelParam) {
         document.getElementById('channel').value = channelParam;
         loadChannel();
+      }
+    });
+    
+    // フルスクリーン終了時の処理
+    document.addEventListener('fullscreenchange', function() {
+      if (!document.fullscreenElement) {
+        updateStatus('フルスクリーンを終了しました');
       }
     });
   </script>
