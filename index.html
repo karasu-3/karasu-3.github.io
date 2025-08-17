@@ -101,6 +101,17 @@
       box-shadow: 0 8px 25px rgba(78, 205, 196, 0.6);
     }
     
+    .btn-danger {
+      background: linear-gradient(45deg, #ff6b6b, #e74c3c);
+      color: white;
+      box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4);
+    }
+    
+    .btn-danger:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 25px rgba(231, 76, 60, 0.6);
+    }
+    
     .content {
       display: none;
       gap: 20px;
@@ -151,15 +162,6 @@
     
     .controls.active {
       display: flex;
-    }
-    
-    .quality-selector {
-      padding: 10px 15px;
-      border: none;
-      border-radius: 25px;
-      background: rgba(255, 255, 255, 0.9);
-      font-size: 14px;
-      cursor: pointer;
     }
     
     .video-only {
@@ -243,11 +245,57 @@
       font-size: 18px;
       animation: danmaku-scroll 8s linear;
       right: -100%;
+      font-family: 'Segoe UI', sans-serif;
+      max-width: 80%;
+      text-overflow: ellipsis;
+      overflow: hidden;
     }
     
     @keyframes danmaku-scroll {
       0% { right: -100%; }
       100% { right: 100%; }
+    }
+    
+    .connection-status {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 10px;
+    }
+    
+    .status-connected {
+      background: #4caf50;
+      box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+    }
+    
+    .status-connecting {
+      background: #ff9800;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    
+    .status-disconnected {
+      background: #f44336;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    
+    .chat-stats {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 10px;
+      border-radius: 10px;
+      margin-top: 10px;
+      text-align: center;
+      color: white;
+      font-size: 14px;
+      display: none;
+    }
+    
+    .chat-stats.active {
+      display: block;
     }
     
     .status {
@@ -330,6 +378,10 @@
         width: 100%;
         height: 300px;
       }
+      
+      .danmaku-comment {
+        font-size: 14px;
+      }
     }
   </style>
 </head>
@@ -370,15 +422,26 @@
       <button class="btn btn-secondary" onclick="toggleMinimalMode()">📱 シンプル表示</button>
     </div>
     
+    <div class="chat-stats" id="chatStats">
+      <div>チャット接続状況: <span class="connection-status" id="connectionStatus"></span><span id="connectionText">未接続</span></div>
+      <div>受信メッセージ数: <span id="messageCount">0</span></div>
+      <div>表示中の弾幕: <span id="activeDanmaku">0</span></div>
+    </div>
+    
     <div class="status" id="status"></div>
   </div>
 
+  <!-- tmi.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tmi.js/1.8.5/tmi.min.js"></script>
+  
   <script>
     let currentChannel = '';
     let danmakuEnabled = false;
-    let danmakuInterval;
     let chatVisible = true;
     let minimalMode = false;
+    let tmiClient = null;
+    let messageCount = 0;
+    let activeDanmakuCount = 0;
     
     // Enterキーでの読み込み対応
     document.getElementById('channel').addEventListener('keypress', function(e) {
@@ -404,6 +467,11 @@
       showLoading();
       hideError();
       
+      // 前のチャット接続を切断
+      if (tmiClient) {
+        disconnectChat();
+      }
+      
       // 少し遅延を入れてローディング効果を見せる
       setTimeout(() => {
         const parent = window.location.hostname || "localhost";
@@ -417,21 +485,91 @@
           document.getElementById("chat").src = 
             `https://www.twitch.tv/embed/${channel}/chat?parent=${parent}&darkpopout`;
           
+          // チャット接続を開始
+          connectToChat(channel);
+          
           showContent();
           hideLoading();
-          updateStatus(`${channel} の配信を表示中 - 動画・チャット・弾幕を同時表示`);
+          document.getElementById('chatStats').classList.add('active');
+          updateStatus(`${channel} の配信を表示中`);
           document.getElementById('clearBtn').style.display = 'block';
-          
-          // 弾幕機能を開始（もしONなら）
-          if (danmakuEnabled) {
-            startDanmaku();
-          }
           
         } catch (error) {
           hideLoading();
           showError("配信の読み込みに失敗しました。チャンネル名を確認してください。");
+          console.error('Error loading channel:', error);
         }
       }, 800);
+    }
+    
+    function connectToChat(channel) {
+      updateConnectionStatus('connecting', 'チャットに接続中...');
+      
+      // tmi.jsクライアントを作成（匿名接続）
+      tmiClient = new tmi.Client({
+        connection: {
+          secure: true,
+          reconnect: true
+        },
+        channels: [channel]
+      });
+      
+      // イベントリスナーを設定
+      tmiClient.on('connected', (addr, port) => {
+        updateConnectionStatus('connected', 'チャット接続完了');
+        console.log(`チャットに接続しました: ${addr}:${port}`);
+      });
+      
+      tmiClient.on('disconnected', (reason) => {
+        updateConnectionStatus('disconnected', '接続切断');
+        console.log('チャット接続が切断されました:', reason);
+      });
+      
+      tmiClient.on('message', (channel, tags, message, self) => {
+        messageCount++;
+        updateMessageCount();
+        
+        // 弾幕が有効な場合のみ表示
+        if (danmakuEnabled) {
+          createDanmakuComment(message, tags.username, tags.color);
+        }
+      });
+      
+      tmiClient.on('reconnect', () => {
+        updateConnectionStatus('connecting', '再接続中...');
+        console.log('チャットを再接続中...');
+      });
+      
+      // 接続開始
+      tmiClient.connect().catch(error => {
+        updateConnectionStatus('disconnected', '接続エラー');
+        console.error('チャット接続エラー:', error);
+        showError('チャットへの接続に失敗しました。');
+      });
+    }
+    
+    function disconnectChat() {
+      if (tmiClient) {
+        tmiClient.disconnect();
+        tmiClient = null;
+        updateConnectionStatus('disconnected', '未接続');
+      }
+    }
+    
+    function updateConnectionStatus(status, text) {
+      const statusElement = document.getElementById('connectionStatus');
+      const textElement = document.getElementById('connectionText');
+      
+      statusElement.className = `connection-status status-${status}`;
+      textElement.textContent = text;
+    }
+    
+    function updateMessageCount() {
+      document.getElementById('messageCount').textContent = messageCount;
+    }
+    
+    function updateActiveDanmakuCount() {
+      document.getElementById('activeDanmaku').textContent = activeDanmakuCount;
     }
     
     function clearChannel() {
@@ -442,8 +580,19 @@
       hideError();
       updateStatus('');
       document.getElementById('clearBtn').style.display = 'none';
+      document.getElementById('chatStats').classList.remove('active');
+      
+      // チャット接続を切断
+      disconnectChat();
+      
       currentChannel = '';
-      stopDanmaku();
+      messageCount = 0;
+      activeDanmakuCount = 0;
+      updateMessageCount();
+      updateActiveDanmakuCount();
+      
+      // 弾幕をクリア
+      document.getElementById('danmakuOverlay').innerHTML = '';
     }
     
     function toggleDanmaku() {
@@ -452,16 +601,16 @@
       
       if (danmakuEnabled) {
         btn.textContent = '🎭 弾幕OFF';
-        btn.style.background = 'linear-gradient(45deg, #ff6b6b, #ee5a24)';
-        updateStatus('弾幕機能ON - 動画・チャット・弾幕を同時表示');
-        if (currentChannel) {
-          startDanmaku();
-        }
+        btn.className = 'btn btn-danger';
+        updateStatus('弾幕機能ON - リアルタイムチャットを弾幕表示');
       } else {
         btn.textContent = '🎭 弾幕ON';
-        btn.style.background = 'linear-gradient(45deg, #4ecdc4, #44a08d)';
-        updateStatus('弾幕機能OFF - 動画・チャットを表示');
-        stopDanmaku();
+        btn.className = 'btn btn-secondary';
+        updateStatus('弾幕機能OFF - チャット表示のみ');
+        // 既存の弾幕をクリア
+        document.getElementById('danmakuOverlay').innerHTML = '';
+        activeDanmakuCount = 0;
+        updateActiveDanmakuCount();
       }
     }
     
@@ -512,49 +661,44 @@
       }
     }
     
-    function startDanmaku() {
-      // ダミーコメントを定期的に表示（実際のTwitch APIは使用できないため）
-      const dummyComments = [
-        'すごい！', 'wwwww', 'おもしろい', 'GG', 'Nice!', 
-        'かっこいい', '草', 'すげー', 'やばい', '最高',
-        'プロだ', 'うまい', 'すごすぎ', 'やったー', '神',
-        'やるじゃん', 'かわいい', '88888', 'クリア！', 'ナイス',
-        'ワロタ', 'すご', 'キター', 'おー', 'いいね'
-      ];
-      
-      danmakuInterval = setInterval(() => {
-        if (Math.random() < 0.4) { // 40%の確率でコメント表示
-          const comment = dummyComments[Math.floor(Math.random() * dummyComments.length)];
-          createDanmakuComment(comment);
-        }
-      }, 1500);
-    }
-    
-    function stopDanmaku() {
-      if (danmakuInterval) {
-        clearInterval(danmakuInterval);
-        danmakuInterval = null;
-      }
-      document.getElementById('danmakuOverlay').innerHTML = '';
-    }
-    
-    function createDanmakuComment(text) {
+    function createDanmakuComment(message, username, userColor) {
       const overlay = document.getElementById('danmakuOverlay');
       const comment = document.createElement('div');
       comment.className = 'danmaku-comment';
-      comment.textContent = text;
+      
+      // メッセージの前処理（長すぎる場合は切り詰め）
+      const displayMessage = message.length > 50 ? message.substring(0, 47) + '...' : message;
+      comment.textContent = `${username}: ${displayMessage}`;
+      
+      // ランダムな縦位置を設定
       comment.style.top = Math.random() * 70 + 10 + '%';
-      comment.style.color = `hsl(${Math.random() * 360}, 70%, 80%)`;
-      comment.style.fontSize = (14 + Math.random() * 8) + 'px';
+      
+      // ユーザーの色を使用（なければランダム）
+      if (userColor) {
+        comment.style.color = userColor;
+      } else {
+        comment.style.color = `hsl(${Math.random() * 360}, 70%, 80%)`;
+      }
+      
+      // フォントサイズをランダムに調整
+      comment.style.fontSize = (16 + Math.random() * 6) + 'px';
+      
+      // アニメーション速度を調整（メッセージの長さに応じて）
+      const duration = Math.max(6, Math.min(12, message.length * 0.1 + 6));
+      comment.style.animationDuration = duration + 's';
       
       overlay.appendChild(comment);
+      activeDanmakuCount++;
+      updateActiveDanmakuCount();
       
       // アニメーション終了後に要素を削除
       setTimeout(() => {
         if (comment.parentNode) {
           comment.parentNode.removeChild(comment);
+          activeDanmakuCount--;
+          updateActiveDanmakuCount();
         }
-      }, 8000);
+      }, duration * 1000);
     }
     
     function showLoading() {
@@ -598,12 +742,24 @@
         document.getElementById('channel').value = channelParam;
         loadChannel();
       }
+      
+      // 初期値設定
+      updateMessageCount();
+      updateActiveDanmakuCount();
+      updateConnectionStatus('disconnected', '未接続');
     });
     
     // フルスクリーン終了時の処理
     document.addEventListener('fullscreenchange', function() {
       if (!document.fullscreenElement) {
         updateStatus('フルスクリーンを終了しました');
+      }
+    });
+    
+    // ページ離脱時にチャット接続を切断
+    window.addEventListener('beforeunload', function() {
+      if (tmiClient) {
+        tmiClient.disconnect();
       }
     });
   </script>
