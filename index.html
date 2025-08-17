@@ -128,6 +128,7 @@
     .player-container {
       flex: 2;
       min-width: 300px;
+      position: relative;
     }
     
     .chat-container {
@@ -159,6 +160,43 @@
       background: rgba(255, 255, 255, 0.9);
       font-size: 14px;
       cursor: pointer;
+    }
+    
+    .video-only {
+      display: block !important;
+      width: 100% !important;
+      max-width: none !important;
+    }
+    
+    .video-only .chat-container {
+      display: none !important;
+    }
+    
+    .danmaku-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 10;
+    }
+    
+    .danmaku-comment {
+      position: absolute;
+      white-space: nowrap;
+      color: white;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+      font-weight: bold;
+      font-size: 18px;
+      animation: danmaku-scroll 8s linear;
+      right: -100%;
+    }
+    
+    @keyframes danmaku-scroll {
+      0% { right: -100%; }
+      100% { right: 100%; }
     }
     
     .status {
@@ -265,26 +303,20 @@
     <div class="error" id="error"></div>
     
     <div class="content" id="content">
-      <div class="player-container">
+      <div class="player-container" id="playerContainer">
         <iframe id="player" width="100%" height="400" allowfullscreen></iframe>
+        <div class="danmaku-overlay" id="danmakuOverlay"></div>
       </div>
-      <div class="chat-container">
+      <div class="chat-container" id="chatContainer">
         <iframe id="chat" width="100%" height="400"></iframe>
       </div>
     </div>
     
     <div class="controls" id="controls">
-      <select class="quality-selector" onchange="changeQuality(this.value)">
-        <option value="auto">画質: 自動</option>
-        <option value="1080p60">1080p60</option>
-        <option value="1080p">1080p</option>
-        <option value="720p60">720p60</option>
-        <option value="720p">720p</option>
-        <option value="480p">480p</option>
-        <option value="360p">360p</option>
-      </select>
+      <button class="btn btn-secondary" onclick="toggleVideoOnly()">📺 動画のみ</button>
       <button class="btn btn-secondary" onclick="toggleFullscreen()">🔍 フルスクリーン</button>
       <button class="btn btn-secondary" onclick="toggleChat()">💬 チャット切り替え</button>
+      <button class="btn btn-secondary" onclick="toggleDanmaku()">🎭 弾幕ON/OFF</button>
     </div>
     
     <div class="status" id="status"></div>
@@ -293,6 +325,9 @@
   <script>
     let currentChannel = '';
     let chatVisible = true;
+    let videoOnlyMode = false;
+    let danmakuEnabled = false;
+    let danmakuComments = [];
     
     // Enterキーでの読み込み対応
     document.getElementById('channel').addEventListener('keypress', function(e) {
@@ -336,6 +371,11 @@
           updateStatus(`${channel} の配信を読み込み中...`);
           document.getElementById('clearBtn').style.display = 'block';
           
+          // 弾幕機能を開始
+          if (danmakuEnabled) {
+            startDanmaku();
+          }
+          
         } catch (error) {
           hideLoading();
           showError("配信の読み込みに失敗しました。チャンネル名を確認してください。");
@@ -352,20 +392,25 @@
       updateStatus('');
       document.getElementById('clearBtn').style.display = 'none';
       currentChannel = '';
+      stopDanmaku();
     }
     
-    function changeQuality(quality) {
-      if (!currentChannel) return;
+    function toggleVideoOnly() {
+      const content = document.getElementById('content');
+      const chatContainer = document.getElementById('chatContainer');
+      const btn = event.target;
       
-      const parent = window.location.hostname || "localhost";
-      let src = `https://player.twitch.tv/?channel=${currentChannel}&parent=${parent}&autoplay=false&muted=false`;
+      videoOnlyMode = !videoOnlyMode;
       
-      if (quality !== 'auto') {
-        src += `&quality=${quality}`;
+      if (videoOnlyMode) {
+        content.classList.add('video-only');
+        btn.textContent = '📺 通常表示';
+        updateStatus('動画のみ表示モード');
+      } else {
+        content.classList.remove('video-only');
+        btn.textContent = '📺 動画のみ';
+        updateStatus('通常表示モード');
       }
-      
-      document.getElementById("player").src = src;
-      updateStatus(`画質を ${quality} に変更しました`);
     }
     
     function toggleFullscreen() {
@@ -378,12 +423,73 @@
     }
     
     function toggleChat() {
-      const chatContainer = document.querySelector('.chat-container');
+      const chatContainer = document.getElementById('chatContainer');
       chatVisible = !chatVisible;
+      
+      if (videoOnlyMode) return; // 動画のみモードでは無効
+      
       chatContainer.style.display = chatVisible ? 'block' : 'none';
       
       const btn = event.target;
       btn.textContent = chatVisible ? '💬 チャット非表示' : '💬 チャット表示';
+    }
+    
+    function toggleDanmaku() {
+      danmakuEnabled = !danmakuEnabled;
+      const btn = event.target;
+      
+      if (danmakuEnabled) {
+        btn.textContent = '🎭 弾幕OFF';
+        updateStatus('弾幕機能ON');
+        if (currentChannel) {
+          startDanmaku();
+        }
+      } else {
+        btn.textContent = '🎭 弾幕ON/OFF';
+        updateStatus('弾幕機能OFF');
+        stopDanmaku();
+      }
+    }
+    
+    function startDanmaku() {
+      // ダミーコメントを定期的に表示（実際のTwitch APIは使用できないため）
+      const dummyComments = [
+        'すごい！', 'wwwww', 'おもしろい', 'GG', 'Nice!', 
+        'かっこいい', '草', 'すげー', 'やばい', '最高',
+        'プロだ', 'うまい', 'すごすぎ', 'やったー', '神'
+      ];
+      
+      danmakuInterval = setInterval(() => {
+        if (Math.random() < 0.3) { // 30%の確率でコメント表示
+          const comment = dummyComments[Math.floor(Math.random() * dummyComments.length)];
+          createDanmakuComment(comment);
+        }
+      }, 2000);
+    }
+    
+    function stopDanmaku() {
+      if (danmakuInterval) {
+        clearInterval(danmakuInterval);
+      }
+      document.getElementById('danmakuOverlay').innerHTML = '';
+    }
+    
+    function createDanmakuComment(text) {
+      const overlay = document.getElementById('danmakuOverlay');
+      const comment = document.createElement('div');
+      comment.className = 'danmaku-comment';
+      comment.textContent = text;
+      comment.style.top = Math.random() * 70 + '%';
+      comment.style.color = `hsl(${Math.random() * 360}, 70%, 80%)`;
+      
+      overlay.appendChild(comment);
+      
+      // アニメーション終了後に要素を削除
+      setTimeout(() => {
+        if (comment.parentNode) {
+          comment.parentNode.removeChild(comment);
+        }
+      }, 8000);
     }
     
     function showLoading() {
