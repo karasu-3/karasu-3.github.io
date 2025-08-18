@@ -112,9 +112,16 @@
       box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4);
     }
     
-    .btn-danger:hover {
-      transform: translateY(-3px);
-      box-shadow: 0 8px 25px rgba(231, 76, 60, 0.6);
+    .btn-active {
+      background: linear-gradient(45deg, #ff6b6b, #e74c3c) !important;
+      color: white !important;
+      box-shadow: 0 4px 15px rgba(231, 76, 60, 0.6) !important;
+      transform: translateY(-2px);
+    }
+    
+    .btn-active:hover {
+      transform: translateY(-4px) !important;
+      box-shadow: 0 8px 25px rgba(231, 76, 60, 0.8) !important;
     }
     
     .content {
@@ -352,8 +359,20 @@
     }
     
     @keyframes danmaku-scroll {
-      0% { right: -100%; }
-      100% { right: 100%; }
+      0% { 
+        right: -100%; 
+        opacity: 1;
+      }
+      5% {
+        opacity: 1;
+      }
+      95% {
+        opacity: 1;
+      }
+      100% { 
+        right: 100%; 
+        opacity: 0;
+      }
     }
     
     .connection-status {
@@ -556,7 +575,7 @@
     </div>
     
     <div class="controls" id="controls">
-      <button class="btn btn-secondary" onclick="toggleDanmaku()">🎭 弾幕ON/OFF</button>
+      <button class="btn btn-secondary" onclick="toggleDanmaku()" id="danmakuBtn">🎭 弾幕</button>
       <button class="btn btn-secondary" onclick="toggleFullscreen()">🔍 フルスクリーン</button>
       <button class="btn btn-secondary" onclick="toggleChat()">💬 チャット切り替え</button>
       <button class="btn btn-secondary" onclick="toggleMinimalMode()">📱 シンプル表示</button>
@@ -875,10 +894,14 @@
             messageCount++;
             updateMessageCount();
             
+            console.log('チャットメッセージ受信:', tags.username || tags['display-name'], message);
+            
             // 弾幕が有効な場合のみ表示
             if (danmakuEnabled) {
               const username = tags['display-name'] || tags.username || 'Anonymous';
               createDanmakuComment(message, username, tags.color);
+            } else {
+              console.log('弾幕無効のため表示スキップ');
             }
           } catch (error) {
             console.warn('Message processing error:', error);
@@ -981,18 +1004,21 @@
     
     function toggleDanmaku() {
       danmakuEnabled = !danmakuEnabled;
-      const btn = event.target;
+      const btn = document.getElementById('danmakuBtn');
       
       if (danmakuEnabled) {
-        btn.textContent = '🎭 弾幕OFF';
-        btn.className = 'btn btn-danger';
+        btn.className = 'btn btn-active';
         updateStatus('弾幕機能ON - リアルタイムチャットを弾幕表示');
+        console.log('弾幕機能をONにしました');
       } else {
-        btn.textContent = '🎭 弾幕ON';
         btn.className = 'btn btn-secondary';
         updateStatus('弾幕機能OFF - チャット表示のみ');
+        console.log('弾幕機能をOFFにしました');
         // 既存の弾幕をクリア
-        document.getElementById('danmakuOverlay').innerHTML = '';
+        const overlay = document.getElementById('danmakuOverlay');
+        if (overlay) {
+          overlay.innerHTML = '';
+        }
         activeDanmakuCount = 0;
         updateActiveDanmakuCount();
       }
@@ -1073,44 +1099,77 @@
     }
     
     function createDanmakuComment(message, username, userColor) {
-      const overlay = document.getElementById('danmakuOverlay');
-      const comment = document.createElement('div');
-      comment.className = 'danmaku-comment';
-      
-      // メッセージの前処理（長すぎる場合は切り詰め）
-      const displayMessage = message.length > 50 ? message.substring(0, 47) + '...' : message;
-      const displayName = username || 'Anonymous';
-      comment.textContent = `${displayName}: ${displayMessage}`;
-      
-      // ランダムな縦位置を設定
-      comment.style.top = Math.random() * 70 + 10 + '%';
-      
-      // ユーザーの色を使用（なければランダム）
-      if (userColor) {
-        comment.style.color = userColor;
-      } else {
-        comment.style.color = `hsl(${Math.random() * 360}, 70%, 80%)`;
+      if (!danmakuEnabled) {
+        console.log('弾幕無効のため表示をスキップ:', username, message);
+        return;
       }
-      
-      // フォントサイズをランダムに調整
-      comment.style.fontSize = (16 + Math.random() * 6) + 'px';
-      
-      // アニメーション速度を調整（メッセージの長さに応じて）
-      const duration = Math.max(6, Math.min(12, message.length * 0.1 + 6));
-      comment.style.animationDuration = duration + 's';
-      
-      overlay.appendChild(comment);
-      activeDanmakuCount++;
-      updateActiveDanmakuCount();
-      
-      // アニメーション終了後に要素を削除
-      setTimeout(() => {
-        if (comment.parentNode) {
-          comment.parentNode.removeChild(comment);
-          activeDanmakuCount--;
-          updateActiveDanmakuCount();
+
+      const overlay = document.getElementById('danmakuOverlay');
+      if (!overlay) {
+        console.warn('弾幕オーバーレイが見つかりません');
+        return;
+      }
+
+      try {
+        const comment = document.createElement('div');
+        comment.className = 'danmaku-comment';
+        
+        // メッセージの前処理（長すぎる場合は切り詰め）
+        const displayMessage = message.length > 50 ? message.substring(0, 47) + '...' : message;
+        const displayName = username || 'Anonymous';
+        comment.textContent = `${displayName}: ${displayMessage}`;
+        
+        // ランダムな縦位置を設定（重ならないように調整）
+        const topPosition = Math.random() * 60 + 10; // 10% - 70%の範囲
+        comment.style.top = topPosition + '%';
+        
+        // ユーザーの色を使用（なければランダム）
+        if (userColor) {
+          comment.style.color = userColor;
+        } else {
+          const hue = Math.random() * 360;
+          comment.style.color = `hsl(${hue}, 70%, 80%)`;
         }
-      }, duration * 1000);
+        
+        // フォントサイズをランダムに調整
+        const fontSize = 16 + Math.random() * 8; // 16px - 24px
+        comment.style.fontSize = fontSize + 'px';
+        
+        // アニメーション速度を調整（メッセージの長さに応じて）
+        const baseSpeed = 6; // 基本速度
+        const lengthFactor = Math.min(message.length * 0.05, 2); // 長さに応じた調整
+        const duration = baseSpeed + lengthFactor;
+        comment.style.animationDuration = duration + 's';
+        
+        // 初期位置を設定（画面右端から開始）
+        comment.style.right = '-100%';
+        
+        overlay.appendChild(comment);
+        activeDanmakuCount++;
+        updateActiveDanmakuCount();
+        
+        console.log('弾幕を表示:', displayName, displayMessage, `${duration}s`);
+        
+        // アニメーション終了後に要素を削除
+        const cleanup = setTimeout(() => {
+          if (comment.parentNode) {
+            comment.parentNode.removeChild(comment);
+            activeDanmakuCount = Math.max(0, activeDanmakuCount - 1);
+            updateActiveDanmakuCount();
+          }
+        }, duration * 1000 + 500); // 少し余裕を持って削除
+        
+        // 強制的に要素を削除する保険
+        setTimeout(() => {
+          if (comment.parentNode) {
+            comment.parentNode.removeChild(comment);
+            clearTimeout(cleanup);
+          }
+        }, 15000); // 15秒後に強制削除
+        
+      } catch (error) {
+        console.error('弾幕作成エラー:', error);
+      }
     }
     
     function showLoading() {
